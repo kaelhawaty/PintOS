@@ -214,7 +214,7 @@ char **parse_args(char *line, int *arg_length)
   char *save_ptr;
   int curSize = BUFF_SIZE;
   ASSERT(args != NULL);
-  char delimits[] = " \n";
+  char delimits[] = " \n'";
   int it = 0;
   char *token = strtok_r(line, delimits, &save_ptr);
   while (token != NULL)
@@ -478,41 +478,41 @@ setup_stack (void **esp, char **args, int len)
       else
         palloc_free_page (kpage);
     }
-  if (success) {
-    int sum = 0;
-    int address[len];
-    for(int it = len - 1; it >= 0; it--) {
-      int arg_len = strlen(args[it]);
-      sum += arg_len + 1;
-      *esp -= arg_len + 1;
-      address[it] = *esp;
-      memcpy(*esp, args[it], arg_len);
+    if (success)
+    {
+      int sum = 0;
+      int address[len];
+      for (int it = len - 1; it >= 0; it--)
+      {
+        int arg_len = strlen(args[it]) + 1;
+        sum += arg_len;
+        *esp -= arg_len;
+        address[it] = *esp;
+        memcpy(*esp, args[it], arg_len);
+      }
+
+      int padding_bytes = (4 - sum % 4) % 4;
+      *esp -= padding_bytes;
+      memset(*esp, 0, padding_bytes);
+
+      *esp -= sizeof(int);
+      memset(*esp, 0, sizeof(int));
+
+      for (int it = len - 1; it >= 0; it--)
+      {
+        *esp -= sizeof(char *);
+        memcpy(*esp, &address[it], sizeof(char *));
+      }
+      *esp -= sizeof(char **);
+      void *ptr = *esp + sizeof(char *);
+      memcpy(*esp, &ptr, sizeof(char **));
+
+      *esp -= sizeof(int);
+      memcpy(*esp, &len, sizeof(int));
+
+      *esp -= sizeof(void *);
+      memset(*esp, 0, sizeof(void *));
     }
-
-    int padding_bytes = (4 - sum % 4) % 4; 
-    *esp -= padding_bytes;
-    memset(*esp, 0, padding_bytes);
-
-    *esp -= sizeof(int);
-    memset(*esp, 0, sizeof(int));
-
-    for(int it = len - 1; it >= 0; it--){
-      *esp -= sizeof(char*);
-      memcpy(*esp, address[it], sizeof(char*));
-    }
-    *esp -= sizeof(char**);
-    memcpy(*esp, *esp + sizeof(char**), sizeof(char**));
-    
-    hex_dump(0, *esp, 100, true);
-
-    
-    *esp -= sizeof(int);
-    memcpy(*esp, len, sizeof(int));
-
-    *esp -= sizeof(void*);
-    memset(*esp, 0, sizeof(void*));
-
-  }
   return success;
 }
 
