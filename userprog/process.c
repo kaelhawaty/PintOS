@@ -88,6 +88,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  for(;;){thread_yield();}
   return -1;
 }
 
@@ -195,11 +196,45 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char **args, int len);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
+
+#define BUFF_SIZE 10    /* Initial buffer size for args */
+
+// Takes a command as string and splits into strings delimited by whitespaces which are returned as 
+// char** -array of strings- dynamically resized to fit the number of arguments of any command.
+// It additionally takes an integer pointer to return the number of arguments of the current command.
+char **parse_args(char *line, int *arg_length)
+{
+  // 2D-array to store the splits of line around white spaces.
+  char **args = malloc(BUFF_SIZE * sizeof(char *));
+  char *save_ptr;
+  int curSize = BUFF_SIZE;
+  ASSERT(args != NULL);
+  char delimits[] = " \n";
+  int it = 0;
+  char *token = strtok_r(line, delimits, &save_ptr);
+  while (token != NULL)
+  {
+      args[it] = token;
+      token = strtok_r(NULL, delimits, &save_ptr);
+
+      it++;
+      if (it == curSize)
+      {
+          // Vector implementation: Multiply each time the size by two and reallocate more memory.
+          curSize *= 2;
+          args = realloc(args, curSize);
+          ASSERT(args != NULL);
+      }
+  }
+  *arg_length = it;
+  args[it] = NULL;
+  return args;
+}
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -220,9 +255,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
+  int len;
+  char **args = parse_args(file_name, &len);  
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (args[0]);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -302,7 +339,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, args, len))
     goto done;
 
   /* Start address. */
@@ -427,7 +464,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, char **args, int len) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -441,6 +478,41 @@ setup_stack (void **esp)
       else
         palloc_free_page (kpage);
     }
+  if (success) {
+    int sum = 0;
+    int address[len];
+    for(int it = len - 1; it >= 0; it--) {
+      int arg_len = strlen(args[it]);
+      sum += arg_len + 1;
+      *esp -= arg_len + 1;
+      address[it] = *esp;
+      memcpy(*esp, args[it], arg_len);
+    }
+
+    int padding_bytes = (4 - sum % 4) % 4; 
+    *esp -= padding_bytes;
+    memset(*esp, 0, padding_bytes);
+
+    *esp -= sizeof(int);
+    memset(*esp, 0, sizeof(int));
+
+    for(int it = len - 1; it >= 0; it--){
+      *esp -= sizeof(char*);
+      memcpy(*esp, address[it], sizeof(char*));
+    }
+    *esp -= sizeof(char**);
+    memcpy(*esp, *esp + sizeof(char**), sizeof(char**));
+    
+    hex_dump(0, *esp, 100, true);
+
+    
+    *esp -= sizeof(int);
+    memcpy(*esp, len, sizeof(int));
+
+    *esp -= sizeof(void*);
+    memset(*esp, 0, sizeof(void*));
+
+  }
   return success;
 }
 
