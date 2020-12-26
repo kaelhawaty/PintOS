@@ -104,6 +104,7 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    //semaphore wait_sema;                /* semaphore for wait system call */ 
 #endif
 
     /* Owned by thread.c. */
