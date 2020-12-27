@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -38,8 +39,13 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  ASSERT(file_name != NULL);
+  char *save_ptr;
+  char delimits[] = " '\n";
+  char *exec_name = strtok_r(file_name, delimits, &save_ptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (exec_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -88,7 +94,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  for(;;){thread_yield();}
+  timer_sleep(20);
   return -1;
 }
 
@@ -227,7 +233,7 @@ char **parse_args(char *line, int *arg_length)
       {
           // Vector implementation: Multiply each time the size by two and reallocate more memory.
           curSize *= 2;
-          args = realloc(args, curSize);
+          args = realloc(args, curSize * sizeof(char *));
           ASSERT(args != NULL);
       }
   }
@@ -350,6 +356,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  free(args);
   return success;
 }
 
