@@ -101,11 +101,11 @@ static void
 sys_exit(int status)
 {
   printf("%s: exit(%d)\n", thread_current()->name, status);
-  //if(thread_current()->self != NULL)
-  //{
-  //  thread_current()->self->exit_status = status;
-  //  thread_current()->self->ptr =NULL;
- // }
+  if(thread_current()->self != NULL)
+  {
+    thread_current()->self->exit_status = status;
+    thread_current()->self->ptr =NULL;
+  }
   sema_up(&thread_current()->wait_child);
   thread_exit();
 }

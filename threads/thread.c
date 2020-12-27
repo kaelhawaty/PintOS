@@ -225,7 +225,7 @@ thread_create (const char *name, int priority,
   #ifdef USERPROG
   /* Assign parent */
   t->parent = thread_current();
-  struct child *child = malloc(sizeof(child));
+  struct child *child = palloc_get_page(PAL_USER);
   child->tid = t->tid;
   child->ptr = t;
   t->self = child;
