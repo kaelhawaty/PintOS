@@ -48,14 +48,15 @@ process_execute (const char *file_name)
   char delimits[] = " '\n";
   char *exec_name = strtok_r(file_name, delimits, &save_ptr);
   struct exec_status args;
-  args.file_name = file_name;
+  args.file_name = fn_copy;
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (exec_name, PRI_DEFAULT, start_process, &args);
+
+  sema_down(&thread_current()->wait_child);
   
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
   
-  sema_down(&thread_current()->wait_child);
   if (!args.status) {
     return TID_ERROR;
   }

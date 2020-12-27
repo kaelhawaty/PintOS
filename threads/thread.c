@@ -117,6 +117,9 @@ thread_init (void)
 void
 thread_start (void) 
 {
+  #ifdef USERPROG
+  hash_init(&thread_current()->children, hash_tid, child_cmp, NULL); 
+  #endif
   /* Create the idle thread. */
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
@@ -227,7 +230,6 @@ thread_create (const char *name, int priority,
   child->ptr = t;
   t->self = child;
   hash_insert(&thread_current()->children, &child->child_elem);
-  sema_init(&t->wait_child, 0);
   #endif
 
   /* Add to run queue. */
@@ -579,6 +581,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->recent_cpu = 0;
   list_init(&t->hold_locks);
   t->waiting_on = NULL;
+  #ifdef USERPROG 
+  sema_init(&t->wait_child, 0);
+  #endif
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
