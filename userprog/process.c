@@ -21,6 +21,10 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+struct exec_status {
+  const char *file_name;
+  bool status;
+};
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -43,35 +47,60 @@ process_execute (const char *file_name)
   char *save_ptr;
   char delimits[] = " '\n";
   char *exec_name = strtok_r(file_name, delimits, &save_ptr);
-
+  struct exec_status args;
+  args.file_name = file_name;
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (exec_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (exec_name, PRI_DEFAULT, start_process, &args);
+  
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (fn_copy);
+  
+  sema_down(&thread_current()->wait_child);
+  if (!args.status) {
+    return TID_ERROR;
+  }
   return tid;
+}
+
+unsigned hash_tid(const struct hash_elem *elem, void *aux UNUSED) {
+  const struct child *child = hash_entry(elem, struct child, child_elem);
+
+  return hash_bytes(&child->tid, sizeof child->tid);
+}
+
+unsigned child_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
+  const struct child *child_a = hash_entry(a, struct child, child_elem);
+  const struct child *child_b = hash_entry(b, struct child, child_elem);
+
+  return child_a->tid < child_b->tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *args_)
 {
-  char *file_name = file_name_;
+  struct exec_status *args = (struct exec_status *) args_;
+  char *file_name = args->file_name;
   struct intr_frame if_;
-  bool success;
+  bool *success = &args->status;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  *success = load (file_name, &if_.eip, &if_.esp);
+  sema_up(&thread_current()->parent->wait_child);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
+  if (!success)
     thread_exit ();
-
+  #ifdef USERPROG
+  hash_init(&thread_current()->children, hash_tid, child_cmp, NULL); 
+  #endif
+  
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -89,13 +118,29 @@ start_process (void *file_name_)
    been successfully called for the given TID, returns -1
    immediately, without waiting.
 
-   This function will be implemented in problem 2-2.  For now, it
+   This function will be implemen ted in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  timer_sleep(20);
-  return -1;
+  struct child temp;
+  temp.tid = child_tid;
+  struct hash_elem *elem = hash_find(&thread_current()->children, &temp.child_elem);
+  
+  if (elem == NULL){ 
+    return -1;
+  }
+
+  struct child *child = hash_entry(elem, struct child, child_elem);
+  
+  if(child->ptr != NULL) {
+    sema_down(&(child->ptr->wait_child));
+  }
+  int exit_status = child->exit_status;
+  hash_delete(&thread_current()->children, &child->child_elem);
+  free(child);
+
+  return child->exit_status;
 }
 
 /* Free the current process's resources. */
