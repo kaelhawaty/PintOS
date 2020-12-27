@@ -38,8 +38,6 @@ static void sys_close(int fd);
 static void
 syscall_handler(struct intr_frame *f)
 {
-  printf("system call!\n");
-
   if (!validate_reference(f->esp))
   {
     sys_exit(-1);
@@ -101,6 +99,7 @@ sys_halt()
 static void
 sys_exit(int status)
 {
+  printf("%s: exit(%d)\n", thread_current()->name, status);
   //sema_up(&thread_current()->wait_sema);
   thread_exit();
 }
