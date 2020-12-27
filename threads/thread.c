@@ -219,6 +219,17 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  #ifdef USERPROG
+  /* Assign parent */
+  t->parent = thread_current();
+  struct child *child = malloc(sizeof(child));
+  child->tid = t->tid;
+  child->ptr = t;
+  t->self = child;
+  hash_insert(&thread_current()->children, &child->child_elem);
+  sema_init(&t->wait_child, 0);
+  #endif
+
   /* Add to run queue. */
   thread_unblock_and_schedule(t);
 

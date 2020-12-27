@@ -4,6 +4,7 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "userprog/process.h"
 
 #define GET_ARG(PTR, OFFSET) (validate_reference((void *)PTR + OFFSET) ? (*((int *)PTR + OFFSET)) : (sys_exit(-1), 0))
 
@@ -100,18 +101,25 @@ static void
 sys_exit(int status)
 {
   printf("%s: exit(%d)\n", thread_current()->name, status);
-  //sema_up(&thread_current()->wait_sema);
+  if(thread_current()->self != NULL)
+  {
+    thread_current()->self->exit_status = status;
+    thread_current()->self->ptr =NULL;
+  }
+  sema_up(&thread_current()->wait_child);
   thread_exit();
 }
 
 static pid_t
 sys_exec(const char *cmd_line)
 {
+  return process_execute(cmd_line);
 }
 
 static int
 sys_wait(pid_t pid)
 {
+  return process_wait(pid);
 }
 
 static bool

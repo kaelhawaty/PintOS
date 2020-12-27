@@ -2,9 +2,11 @@
 #define THREADS_THREAD_H
 
 #include <debug.h>
+#include <hash.h>
 #include <list.h>
 #include <stdint.h>
 #include "threads/fixed_point.h"
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -104,7 +106,10 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-    //semaphore wait_sema;                /* semaphore for wait system call */ 
+    struct hash children;               
+    struct thread *parent;
+    struct semaphore wait_child;
+    struct child *self;
 #endif
 
     /* Owned by thread.c. */
