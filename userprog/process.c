@@ -139,7 +139,7 @@ process_wait (tid_t child_tid)
   }
   int exit_status = child->exit_status;
   hash_delete(&thread_current()->children, &child->child_elem);
-  free(child);
+  palloc_free_page(child);
 
   return exit_status;
 }

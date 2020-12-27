@@ -5,9 +5,9 @@
 
 struct child {
     tid_t tid;
-    struct hash_elem child_elem;
     struct thread *ptr;
     int exit_status;
+    struct hash_elem child_elem;
 };
 
 tid_t process_execute (const char *file_name);
