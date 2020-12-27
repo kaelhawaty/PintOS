@@ -53,7 +53,7 @@ process_execute (const char *file_name)
   tid = thread_create (exec_name, PRI_DEFAULT, start_process, &args);
 
   sema_down(&thread_current()->wait_child);
-  
+
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
   
@@ -96,7 +96,7 @@ start_process (void *args_)
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success)
+  if (!*success)
     thread_exit ();
   #ifdef USERPROG
   hash_init(&thread_current()->children, hash_tid, child_cmp, NULL); 
@@ -141,7 +141,7 @@ process_wait (tid_t child_tid)
   hash_delete(&thread_current()->children, &child->child_elem);
   free(child);
 
-  return child->exit_status;
+  return exit_status;
 }
 
 /* Free the current process's resources. */
@@ -309,7 +309,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
   int len;
   char **args = parse_args(file_name, &len);  
-
   /* Open executable file. */
   file = filesys_open (args[0]);
   if (file == NULL) 
