@@ -110,6 +110,7 @@ struct thread
     struct thread *parent;
     struct semaphore wait_child;
     struct child *self;
+    struct hash opened_files;
 #endif
 
     /* Owned by thread.c. */
