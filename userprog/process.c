@@ -19,12 +19,49 @@
 #include "threads/vaddr.h"
 #include "devices/timer.h"
 
-static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
-struct exec_status {
-  const char *file_name;
+struct process_args {
+  int len;
+  char **command;
   bool status;
+  struct semaphore wait_load;
 };
+
+static thread_func start_process NO_RETURN;
+static bool load (struct process_args *args, void (**eip) (void), void **esp);
+
+#define BUFF_SIZE 10    /* Initial buffer size for args */
+
+// Takes a command as string and splits into strings delimited by whitespaces which are returned as 
+// char** -array of strings- dynamically resized to fit the number of arguments of any command.
+// It additionally takes an integer pointer to return the number of arguments of the current command.
+char **parse_args(char *line, int *arg_length)
+{
+  // 2D-array to store the splits of line around white spaces.
+  char **args = malloc(BUFF_SIZE * sizeof(char *));
+  char *save_ptr;
+  int curSize = BUFF_SIZE;
+  ASSERT(args != NULL);
+  char delimits[] = " \n'";
+  int it = 0;
+  char *token = strtok_r(line, delimits, &save_ptr);
+  while (token != NULL)
+  {
+      args[it] = token;
+      token = strtok_r(NULL, delimits, &save_ptr);
+
+      it++;
+      if (it == curSize)
+      {
+          // Vector implementation: Multiply each time the size by two and reallocate more memory.
+          curSize *= 2;
+          args = realloc(args, curSize * sizeof(char *));
+          ASSERT(args != NULL);
+      }
+  }
+  *arg_length = it;
+  args[it] = NULL;
+  return args;
+}
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -44,15 +81,13 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   ASSERT(file_name != NULL);
-  char *save_ptr;
-  char delimits[] = " '\n";
-  char *exec_name = strtok_r(file_name, delimits, &save_ptr);
-  struct exec_status args;
-  args.file_name = fn_copy;
+  struct process_args args;
+  args.command = parse_args(fn_copy, &args.len);
+  sema_init(&args.wait_load, 0);
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (exec_name, PRI_DEFAULT, start_process, &args);
+  tid = thread_create (args.command[0], PRI_DEFAULT, start_process, &args);
 
-  sema_down(&thread_current()->wait_child);
+  sema_down(&args.wait_load);
 
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
@@ -81,8 +116,7 @@ unsigned child_cmp(const struct hash_elem *a, const struct hash_elem *b, void *a
 static void
 start_process (void *args_)
 {
-  struct exec_status *args = (struct exec_status *) args_;
-  char *file_name = args->file_name;
+  struct process_args *args = (struct process_args *) args_;
   struct intr_frame if_;
   bool *success = &args->status;
 
@@ -91,11 +125,12 @@ start_process (void *args_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  *success = load (file_name, &if_.eip, &if_.esp);
-  sema_up(&thread_current()->parent->wait_child);
+  *success = load (args, &if_.eip, &if_.esp);
+  sema_up(&args->wait_load);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (*args->command);
+  free(args->command);
   if (!*success)
     thread_exit ();
   #ifdef USERPROG
@@ -139,9 +174,21 @@ process_wait (tid_t child_tid)
   }
   int exit_status = child->exit_status;
   hash_delete(&thread_current()->children, &child->child_elem);
-  palloc_free_page(child);
+  free(child);
 
   return exit_status;
+}
+
+void
+child_free (struct hash_elem* elem, void* aux UNUSED)
+{
+  struct child *child = hash_entry(elem, struct child, child_elem);
+  // Set pointers to NULL to indicate parent has died
+  struct thread* thread = child->ptr;
+  thread->parent = NULL;
+  thread->self = NULL;
+  //free the memory
+  free(child);
 }
 
 /* Free the current process's resources. */
@@ -150,6 +197,9 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+
+  /* Clean up object children hash table */
+  hash_destroy(&thread_current()->children, child_free);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -254,46 +304,12 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
-#define BUFF_SIZE 10    /* Initial buffer size for args */
-
-// Takes a command as string and splits into strings delimited by whitespaces which are returned as 
-// char** -array of strings- dynamically resized to fit the number of arguments of any command.
-// It additionally takes an integer pointer to return the number of arguments of the current command.
-char **parse_args(char *line, int *arg_length)
-{
-  // 2D-array to store the splits of line around white spaces.
-  char **args = malloc(BUFF_SIZE * sizeof(char *));
-  char *save_ptr;
-  int curSize = BUFF_SIZE;
-  ASSERT(args != NULL);
-  char delimits[] = " \n'";
-  int it = 0;
-  char *token = strtok_r(line, delimits, &save_ptr);
-  while (token != NULL)
-  {
-      args[it] = token;
-      token = strtok_r(NULL, delimits, &save_ptr);
-
-      it++;
-      if (it == curSize)
-      {
-          // Vector implementation: Multiply each time the size by two and reallocate more memory.
-          curSize *= 2;
-          args = realloc(args, curSize * sizeof(char *));
-          ASSERT(args != NULL);
-      }
-  }
-  *arg_length = it;
-  args[it] = NULL;
-  return args;
-}
-
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (struct process_args *args, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -307,13 +323,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
-  int len;
-  char **args = parse_args(file_name, &len);  
   /* Open executable file. */
-  file = filesys_open (args[0]);
+  file = filesys_open (args->command[0]);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", args->command[0]);
       goto done; 
     }
 
@@ -326,7 +340,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", args->command[0]);
       goto done; 
     }
 
@@ -390,7 +404,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, args, len))
+  if (!setup_stack (esp, args->command, args->len))
     goto done;
 
   /* Start address. */
@@ -401,7 +415,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
-  free(args);
   return success;
 }
 
