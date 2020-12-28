@@ -5,10 +5,15 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
+#include "threads/malloc.h"
 #include "userprog/process.h"
 #include "userprog/pagedir.h"
-
+#define ERROR -1
 typedef int pid_t;
+
+struct lock file_lock;
+int fd_num;
 
 static void syscall_handler(struct intr_frame *);
 static void sys_halt();
@@ -25,9 +30,23 @@ static void sys_seek(int fd, unsigned position);
 static unsigned sys_tell(int fd);
 static void sys_close(int fd);
 
+unsigned hash_fd(const struct hash_elem *elem, void *aux UNUSED) {
+  const struct fd *fd = hash_entry(elem, struct fd, fd_elem);
+  return hash_bytes(&fd->fd_num, sizeof fd->fd_num);
+}
+
+unsigned fd_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
+  const struct fd *fd_a = hash_entry(a, struct fd, fd_elem);
+  const struct fd *fd_b = hash_entry(b, struct fd, fd_elem);
+
+  return fd_a->fd_num < fd_b->fd_num;
+}
+
 void syscall_init(void)
 {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&file_lock);
+  fd_num = 2;
 }
 
 static bool validate(void *ptr) {
@@ -38,7 +57,7 @@ static void validate_multiple(void *ptr, int size) {
   char *temp = ptr;
   for(int i = 0; i < size; i++){
     if(!validate(temp + i)){
-      sys_exit(-1);
+      sys_exit(ERROR);
     }
   }
 }
@@ -100,6 +119,16 @@ syscall_handler(struct intr_frame *f)
     break;
   }
 }
+struct fd *get_fd(int fd_num) {
+  struct fd key;
+  key.fd_num = fd_num;
+  struct hash_elem *fd_elem = hash_find(&thread_current()->opened_files, &key.fd_elem);
+  if (!fd_elem) {
+    return NULL;
+  }
+  struct fd *fd = hash_entry(fd_elem, struct fd, fd_elem);
+  return fd;
+}
 
 static void
 sys_halt()
@@ -119,6 +148,7 @@ sys_exit(int status)
   }
   sema_up(&thread_current()->wait_child);
   thread_exit();
+  NOT_REACHED();
 }
 
 static pid_t
@@ -138,6 +168,10 @@ static bool
 sys_create(const char *file, unsigned initial_size)
 {
   validate_multiple(file, 4);
+  lock_acquire(&file_lock);
+  bool ans = filesys_create(file, initial_size);
+  lock_release(&file_lock);
+  return ans;
 }
 
 static bool
@@ -147,41 +181,95 @@ sys_remove(const char *file)
 }
 
 static int
-sys_open(const char *file)
+sys_open(const char *file_name)
 {
-  validate_multiple(file, 4);
+  validate_multiple(file_name, 4);
+  lock_acquire(&file_lock);
+  struct file *file = filesys_open(file_name);
+  lock_release(&file_lock);
+  if (!file) {
+    return ERROR;
+  }
+  struct fd *fd = malloc(sizeof(struct fd));
+  fd->file = file;
+  fd->fd_num = fd_num++;
+  hash_insert(&thread_current()->opened_files, &fd->fd_elem);
+  return fd->fd_num;
 }
 
 static int
-sys_file_size(int fd)
+sys_file_size(int fd_num)
 {
+  struct fd *fd = get_fd(fd_num);
+  if (fd == NULL) {
+    return ERROR;
+  }
+  lock_acquire(&file_lock);
+  int ans = file_length(fd->file);
+  lock_release(&file_lock);
+  return ans;
 }
 
 static int
-sys_read(int fd, void *buffer, unsigned size)
+sys_read(int fd_num, void *buffer, unsigned size)
 {
-  validate_multiple(buffer, 4 * size);
+  validate_multiple(buffer, size);
+  ASSERT(buffer != NULL);
+  if (fd_num == 0) {
+    input_getc(buffer, size);
+    return size;
+  }
+  struct fd *fd = get_fd(fd_num);
+  if (fd == NULL) {
+    return ERROR;
+  }
+  lock_acquire(&file_lock);
+  int ans = file_read(fd->file, buffer, size);
+  lock_release(&file_lock);
+  return ans;
 }
 
 static int
-sys_write(int fd, const void *buffer, unsigned size)
+sys_write(int fd_num, const void *buffer, unsigned size)
 {
-  validate_multiple(buffer, 4 * size);
-  putbuf(buffer, size);
-  return size;
+  validate_multiple(buffer, size);
+  ASSERT(buffer != NULL);
+  if (fd_num == 1) {
+    putbuf(buffer, size);
+    return size;
+  }
+  struct fd *fd = get_fd(fd_num);
+  if (fd == NULL) {
+    return ERROR;
+  }
+  lock_acquire(&file_lock);
+  int ans = file_write(fd->file, buffer, size);
+  lock_release(&file_lock);
+  return ans;
 }
 
 static void
-sys_seek(int fd, unsigned position)
+sys_seek(int fd_num, unsigned position)
 {
+  
 }
 
 static unsigned
-sys_tell(int fd)
+sys_tell(int fd_num)
 {
+  
 }
 
 static void
-sys_close(int fd)
+sys_close(int fd_num)
 {
+  struct fd *fd = get_fd(fd_num);
+  if (fd == NULL) {
+    return ERROR;
+  }
+  lock_acquire(&file_lock);
+  file_close(fd->file);
+  lock_release(&file_lock);
+  hash_delete(&thread_current()->opened_files, &fd->fd_elem);
+  free(fd);
 }

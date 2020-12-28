@@ -14,6 +14,7 @@
 #include "threads/priority_scheduler.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -118,7 +119,8 @@ void
 thread_start (void) 
 {
   #ifdef USERPROG
-  hash_init(&thread_current()->children, hash_tid, child_cmp, NULL); 
+  hash_init(&thread_current()->children, hash_tid, child_cmp, NULL);
+  hash_init(&thread_current()->opened_files, hash_fd, fd_cmp, NULL);
   #endif
   /* Create the idle thread. */
   struct semaphore idle_started;
