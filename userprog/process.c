@@ -18,7 +18,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "devices/timer.h"
-
+#include "userprog/syscall.h"
 struct process_args {
   int len;
   char **command;
@@ -134,7 +134,8 @@ start_process (void *args_)
   if (!*success)
     thread_exit ();
   #ifdef USERPROG
-  hash_init(&thread_current()->children, hash_tid, child_cmp, NULL); 
+  hash_init(&thread_current()->children, hash_tid, child_cmp, NULL);
+  hash_init(&thread_current()->opened_files, hash_fd, fd_cmp, NULL); 
   #endif
   
   /* Start the user process by simulating a return from an
