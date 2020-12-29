@@ -10,6 +10,9 @@
 #include "userprog/process.h"
 #include "userprog/pagedir.h"
 #define ERROR -1
+#define STDIN 0
+#define STDOUT 1
+
 typedef int pid_t;
 
 struct lock file_lock;
@@ -31,13 +34,13 @@ static unsigned sys_tell(int fd);
 static void sys_close(int fd);
 
 unsigned hash_fd(const struct hash_elem *elem, void *aux UNUSED) {
-  const struct fd *fd = hash_entry(elem, struct fd, fd_elem);
+  const struct file_descriptor *fd = hash_entry(elem, struct file_descriptor, fd_elem);
   return hash_bytes(&fd->fd_num, sizeof fd->fd_num);
 }
 
 unsigned fd_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
-  const struct fd *fd_a = hash_entry(a, struct fd, fd_elem);
-  const struct fd *fd_b = hash_entry(b, struct fd, fd_elem);
+  const struct file_descriptor *fd_a = hash_entry(a, struct file_descriptor, fd_elem);
+  const struct file_descriptor *fd_b = hash_entry(b, struct file_descriptor, fd_elem);
 
   return fd_a->fd_num < fd_b->fd_num;
 }
@@ -119,14 +122,15 @@ syscall_handler(struct intr_frame *f)
     break;
   }
 }
-struct fd *get_fd(int fd_num) {
-  struct fd key;
+
+struct file_descriptor *get_fd(int fd_num) {
+  struct file_descriptor key;
   key.fd_num = fd_num;
   struct hash_elem *fd_elem = hash_find(&thread_current()->opened_files, &key.fd_elem);
   if (!fd_elem) {
     return NULL;
   }
-  struct fd *fd = hash_entry(fd_elem, struct fd, fd_elem);
+  struct file_descriptor *fd = hash_entry(fd_elem, struct file_descriptor, fd_elem);
   return fd;
 }
 
@@ -190,10 +194,10 @@ sys_open(const char *file_name)
   lock_acquire(&file_lock);
   struct file *file = filesys_open(file_name);
   lock_release(&file_lock);
-  if (!file) {
+  if (file == NULL) {
     return ERROR;
   }
-  struct fd *fd = malloc(sizeof(struct fd));
+  struct file_descriptor *fd = malloc(sizeof(struct file_descriptor));
   fd->file = file;
   fd->fd_num = fd_num++;
   hash_insert(&thread_current()->opened_files, &fd->fd_elem);
@@ -203,7 +207,7 @@ sys_open(const char *file_name)
 static int
 sys_file_size(int fd_num)
 {
-  struct fd *fd = get_fd(fd_num);
+  struct file_descriptor *fd = get_fd(fd_num);
   if (fd == NULL) {
     return ERROR;
   }
@@ -217,12 +221,11 @@ static int
 sys_read(int fd_num, void *buffer, unsigned size)
 {
   validate_multiple(buffer, size);
-  ASSERT(buffer != NULL);
-  if (fd_num == 0) {
+  if (fd_num == STDIN) {
     input_getc(buffer, size);
     return size;
   }
-  struct fd *fd = get_fd(fd_num);
+  struct file_descriptor *fd = get_fd(fd_num);
   if (fd == NULL) {
     return ERROR;
   }
@@ -236,12 +239,11 @@ static int
 sys_write(int fd_num, const void *buffer, unsigned size)
 {
   validate_multiple(buffer, size);
-  ASSERT(buffer != NULL);
-  if (fd_num == 1) {
+  if (fd_num == STDOUT) {
     putbuf(buffer, size);
     return size;
   }
-  struct fd *fd = get_fd(fd_num);
+  struct file_descriptor *fd = get_fd(fd_num);
   if (fd == NULL) {
     return ERROR;
   }
@@ -254,7 +256,7 @@ sys_write(int fd_num, const void *buffer, unsigned size)
 static void
 sys_seek(int fd_num, unsigned position)
 {
-  struct fd *fd = get_fd(fd_num);
+  struct file_descriptor *fd = get_fd(fd_num);
   if (fd == NULL) {
     return ERROR;
   }
@@ -266,7 +268,7 @@ sys_seek(int fd_num, unsigned position)
 static unsigned
 sys_tell(int fd_num)
 {
-  struct fd *fd = get_fd(fd_num);
+  struct file_descriptor *fd = get_fd(fd_num);
   if (fd == NULL) {
     return ERROR;
   }
@@ -278,7 +280,7 @@ sys_tell(int fd_num)
 static void
 sys_close(int fd_num)
 {
-  struct fd *fd = get_fd(fd_num);
+  struct file_descriptor *fd = get_fd(fd_num);
   if (fd == NULL) {
     return ERROR;
   }
