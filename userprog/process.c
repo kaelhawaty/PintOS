@@ -186,10 +186,23 @@ child_free (struct hash_elem* elem, void* aux UNUSED)
   struct child *child = hash_entry(elem, struct child, child_elem);
   // Set pointers to NULL to indicate parent has died
   struct thread* thread = child->ptr;
-  thread->parent = NULL;
-  thread->self = NULL;
+  if (thread != NULL)
+  {
+    thread->parent = NULL;
+    thread->self = NULL;
+  }
   //free the memory
   free(child);
+}
+
+void
+fd_free (struct hash_elem* elem, void* aux UNUSED)
+{
+  struct fd *fd = hash_entry(elem, struct fd, fd_elem);
+  lock_acquire(&file_lock);
+  file_close(fd->file);
+  lock_release(&file_lock);
+  free(fd);
 }
 
 /* Free the current process's resources. */
@@ -201,6 +214,7 @@ process_exit (void)
 
   /* Clean up object children hash table */
   hash_destroy(&thread_current()->children, child_free);
+  hash_destroy(&thread_current()->opened_files, fd_free);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -325,13 +339,16 @@ load (struct process_args *args, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
   /* Open executable file. */
+  lock_acquire(&file_lock);
   file = filesys_open (args->command[0]);
+  lock_release(&file_lock);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", args->command[0]);
       goto done; 
     }
-
+    thread_current()->exec_file = file;
+    file_deny_write(file);
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -415,7 +432,7 @@ load (struct process_args *args, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  //file_close (file);
   return success;
 }
 
