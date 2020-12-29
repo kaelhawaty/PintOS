@@ -2,6 +2,7 @@
 #define USERPROG_SYSCALL_H
 #include <hash.h>
 
+extern struct lock file_lock;
 struct fd {
     int fd_num;
     struct hash_elem fd_elem;
