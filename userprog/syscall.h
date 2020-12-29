@@ -3,7 +3,7 @@
 #include <hash.h>
 
 extern struct lock file_lock;
-struct fd {
+struct file_descriptor {
     int fd_num;
     struct hash_elem fd_elem;
     struct file *file;

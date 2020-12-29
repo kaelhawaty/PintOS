@@ -19,6 +19,7 @@
 #include "threads/vaddr.h"
 #include "devices/timer.h"
 #include "userprog/syscall.h"
+
 struct process_args {
   int len;
   char **command;
@@ -198,7 +199,7 @@ child_free (struct hash_elem* elem, void* aux UNUSED)
 void
 fd_free (struct hash_elem* elem, void* aux UNUSED)
 {
-  struct fd *fd = hash_entry(elem, struct fd, fd_elem);
+  struct file_descriptor *fd = hash_entry(elem, struct file_descriptor, fd_elem);
   lock_acquire(&file_lock);
   file_close(fd->file);
   lock_release(&file_lock);
