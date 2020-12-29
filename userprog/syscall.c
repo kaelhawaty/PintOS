@@ -147,6 +147,9 @@ sys_exit(int status)
     thread_current()->self->ptr =NULL;
   }
   sema_up(&thread_current()->wait_child);
+  lock_acquire(&file_lock);
+  file_close(thread_current()->exec_file);
+  lock_release(&file_lock);
   thread_exit();
   NOT_REACHED();
 }
@@ -251,13 +254,25 @@ sys_write(int fd_num, const void *buffer, unsigned size)
 static void
 sys_seek(int fd_num, unsigned position)
 {
-  
+  struct fd *fd = get_fd(fd_num);
+  if (fd == NULL) {
+    return ERROR;
+  }
+  lock_acquire(&file_lock);
+  file_seek(fd->file, position);
+  lock_release(&file_lock);
 }
 
 static unsigned
 sys_tell(int fd_num)
 {
-  
+  struct fd *fd = get_fd(fd_num);
+  if (fd == NULL) {
+    return ERROR;
+  }
+  lock_acquire(&file_lock);
+  file_tell(fd->file);
+  lock_release(&file_lock);
 }
 
 static void
