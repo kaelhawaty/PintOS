@@ -323,6 +323,18 @@ thread_tid (void)
   return thread_current ()->tid;
 }
 
+
+static void
+free_locks () {
+
+  struct list *ls = &thread_current()->hold_locks;
+  for (struct list_elem *lock = list_begin(ls); lock != list_end(ls); lock = list_next(lock)) {
+    lock_release(list_entry(lock, struct lock, lock_elem));
+  }
+
+}
+
+
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void
@@ -338,6 +350,7 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
+  free_locks();
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();

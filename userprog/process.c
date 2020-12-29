@@ -213,9 +213,17 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+  
+  sema_up(&thread_current()->wait_child);
+  lock_acquire(&file_lock);
+  file_close(thread_current()->exec_file);
+  lock_release(&file_lock);
+
   /* Clean up object children hash table */
   hash_destroy(&thread_current()->children, child_free);
   hash_destroy(&thread_current()->opened_files, fd_free);
+  
+
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
