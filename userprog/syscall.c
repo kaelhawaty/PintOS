@@ -9,7 +9,7 @@
 #include "threads/malloc.h"
 #include "userprog/process.h"
 #include "userprog/pagedir.h"
-#define ERROR -1
+
 #define STDIN 0
 #define STDOUT 1
 
@@ -20,7 +20,7 @@ int fd_num;
 
 static void syscall_handler(struct intr_frame *);
 static void sys_halt();
-static void sys_exit(int status);
+void sys_exit(int status);
 static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
 static bool sys_create(const char *file, unsigned initial_size);
@@ -33,39 +33,69 @@ static void sys_seek(int fd, unsigned position);
 static unsigned sys_tell(int fd);
 static void sys_close(int fd);
 
-unsigned hash_fd(const struct hash_elem *elem, void *aux UNUSED) {
+unsigned 
+hash_fd(const struct hash_elem *elem, void *aux UNUSED) {
   const struct file_descriptor *fd = hash_entry(elem, struct file_descriptor, fd_elem);
   return hash_bytes(&fd->fd_num, sizeof fd->fd_num);
 }
 
-unsigned fd_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
+unsigned 
+fd_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
   const struct file_descriptor *fd_a = hash_entry(a, struct file_descriptor, fd_elem);
   const struct file_descriptor *fd_b = hash_entry(b, struct file_descriptor, fd_elem);
 
   return fd_a->fd_num < fd_b->fd_num;
 }
 
-void syscall_init(void)
+/* Reads a byte at user virtual address UADDR.
+UADDR must be below PHYS_BASE.
+Returns the byte value if successful, -1 if a segfault
+occurred. */
+static int
+get_data (const uint8_t *uaddr)
+{
+  int result;
+  asm ("movl $1f, %0; movzbl %1, %0; 1:"
+  : "=&a" (result) : "m" (*uaddr));
+  return result;
+}
+
+/* Writes BYTE to user address UDST.
+UDST must be below PHYS_BASE.
+Returns true if successful, false if a segfault occurred. */
+static bool
+put_data (uint8_t *udst, uint8_t byte)
+{
+  int error_code;
+  asm ("movl $1f, %0; movb %b2, %1; 1:"
+  : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+  return error_code != -1;
+}
+
+
+void 
+syscall_init(void)
 {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init(&file_lock);
   fd_num = 2;
 }
 
-static bool validate(void *ptr) {
-  return is_user_vaddr(ptr) && pagedir_get_page(thread_current()->pagedir, ptr) != NULL;
+static bool 
+validate(void *ptr) {
+  return ptr != NULL && is_user_vaddr(ptr) && get_data(ptr) != -1;
 }
 
-static void validate_multiple(void *ptr, int size) {
+static void 
+validate_multiple(void *ptr, int size) {
   char *temp = ptr;
-  for(int i = 0; i < size; i++){
-    if(!validate(temp + i)){
-      sys_exit(ERROR);
-    }
+  if (!validate(temp + size - 1)) {
+    sys_exit(ERROR);
   }
 }
 
-static int GET_ARG(void *ptr, int offset)
+static int 
+GET_ARG(void *ptr, int offset)
 {
   int *temp = (int*) ptr + offset;
   validate_multiple(temp, 4);
@@ -123,7 +153,8 @@ syscall_handler(struct intr_frame *f)
   }
 }
 
-struct file_descriptor *get_fd(int fd_num) {
+struct 
+file_descriptor *get_fd(int fd_num) {
   struct file_descriptor key;
   key.fd_num = fd_num;
   struct hash_elem *fd_elem = hash_find(&thread_current()->opened_files, &key.fd_elem);
@@ -141,7 +172,7 @@ sys_halt()
   NOT_REACHED();
 }
 
-static void
+void
 sys_exit(int status)
 {
   printf("%s: exit(%d)\n", thread_current()->name, status);
@@ -150,10 +181,6 @@ sys_exit(int status)
     thread_current()->self->exit_status = status;
     thread_current()->self->ptr =NULL;
   }
-  sema_up(&thread_current()->wait_child);
-  lock_acquire(&file_lock);
-  file_close(thread_current()->exec_file);
-  lock_release(&file_lock);
   thread_exit();
   NOT_REACHED();
 }
@@ -185,6 +212,13 @@ static bool
 sys_remove(const char *file)
 {
   validate_multiple(file, 4);
+  
+  bool success;
+  lock_acquire(&file_lock);
+  success = filesys_remove(file);
+  lock_release(&file_lock);
+
+  return success;
 }
 
 static int
@@ -239,6 +273,7 @@ static int
 sys_write(int fd_num, const void *buffer, unsigned size)
 {
   validate_multiple(buffer, size);
+  //printf("validation is done");
   if (fd_num == STDOUT) {
     putbuf(buffer, size);
     return size;
@@ -258,7 +293,7 @@ sys_seek(int fd_num, unsigned position)
 {
   struct file_descriptor *fd = get_fd(fd_num);
   if (fd == NULL) {
-    return ERROR;
+    return;
   }
   lock_acquire(&file_lock);
   file_seek(fd->file, position);
