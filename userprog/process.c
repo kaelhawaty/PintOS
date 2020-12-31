@@ -82,34 +82,62 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   ASSERT(file_name != NULL);
+  
+  /* Create a process_args struct 
+  with parsed arguments and intialized semaphore to wait for child loading. */
   struct process_args args;
   args.command = parse_args(fn_copy, &args.len);
   sema_init(&args.wait_load, 0);
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (args.command[0], PRI_DEFAULT, start_process, &args);
 
+  /* Wait for child till it completes loading or fails,
+  so that loading status can be returned to the parent process. */
   sema_down(&args.wait_load);
 
+  /* If thread_creation failed. */
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
   
+  /* If child loading fails. */
   if (!args.status) {
     return TID_ERROR;
   }
   return tid;
 }
 
-unsigned hash_tid(const struct hash_elem *elem, void *aux UNUSED) {
+/* Hash function used to Hash child struct. */
+unsigned 
+hash_tid(const struct hash_elem *elem, void *aux UNUSED) {
   const struct child *child = hash_entry(elem, struct child, child_elem);
 
   return hash_bytes(&child->tid, sizeof child->tid);
 }
 
-unsigned child_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
+/* Comparator to compare between child structs according to their ID. */
+unsigned 
+child_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
   const struct child *child_a = hash_entry(a, struct child, child_elem);
   const struct child *child_b = hash_entry(b, struct child, child_elem);
 
   return child_a->tid < child_b->tid;
+}
+
+
+/* Hash function used to Hash file_descriptor struct. */
+unsigned 
+hash_fd(const struct hash_elem *elem, void *aux UNUSED) {
+  const struct file_descriptor *fd = hash_entry(elem, struct file_descriptor, fd_elem);
+  return hash_bytes(&fd->fd_num, sizeof fd->fd_num);
+}
+
+/* Comparator to compare between file desscriptors according to their fd number. */
+unsigned 
+fd_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
+  const struct file_descriptor *fd_a = hash_entry(a, struct file_descriptor, fd_elem);
+  const struct file_descriptor *fd_b = hash_entry(b, struct file_descriptor, fd_elem);
+
+  return fd_a->fd_num < fd_b->fd_num;
 }
 
 /* A thread function that loads a user process and starts it
@@ -127,6 +155,8 @@ start_process (void *args_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   *success = load (args, &if_.eip, &if_.esp);
+
+  /* Wake up the parent since load is done. */
   sema_up(&args->wait_load);
 
   /* If load failed, quit. */
@@ -134,6 +164,8 @@ start_process (void *args_)
   free(args->command);
   if (!*success)
     thread_exit ();
+
+  /* Initialize the hash tables for open files and children. */
   #ifdef USERPROG
   hash_init(&thread_current()->children, hash_tid, child_cmp, NULL);
   hash_init(&thread_current()->opened_files, hash_fd, fd_cmp, NULL); 
@@ -161,16 +193,18 @@ start_process (void *args_)
 int
 process_wait (tid_t child_tid) 
 {
+
+  /* Get the record of the child with child_tid as tid from children hashmap. */
   struct child temp;
   temp.tid = child_tid;
   struct hash_elem *elem = hash_find(&thread_current()->children, &temp.child_elem);
   
-  if (elem == NULL){ 
-    return -1;
-  }
+  ASSERT(elem != NULL);
 
   struct child *child = hash_entry(elem, struct child, child_elem);
-  
+
+  /* If the child->ptr is NULL means that the child terminated 
+  and child struct is just a record. */  
   if(child->ptr != NULL) {
     sema_down(&(child->ptr->wait_child));
   }
@@ -213,18 +247,15 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
-  
   sema_up(&thread_current()->wait_child);
   lock_acquire(&file_lock);
   file_close(thread_current()->exec_file);
   lock_release(&file_lock);
 
-  /* Clean up object children hash table */
+  /* Clean up object children hash table. */
   hash_destroy(&thread_current()->children, child_free);
   hash_destroy(&thread_current()->opened_files, fd_free);
   
-
-
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -347,16 +378,19 @@ load (struct process_args *args, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
+
   /* Open executable file. */
   lock_acquire(&file_lock);
   file = filesys_open (args->command[0]);
   lock_release(&file_lock);
+
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", args->command[0]);
       goto done; 
     }
     thread_current()->exec_file = file;
+    /* Deny write to executable file. */
     file_deny_write(file);
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -441,7 +475,6 @@ load (struct process_args *args, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  //file_close (file);
   return success;
 }
 
