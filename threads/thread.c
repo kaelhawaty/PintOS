@@ -323,17 +323,15 @@ thread_tid (void)
   return thread_current ()->tid;
 }
 
-
+/* Releasing all the locks that's held by the current thread.
+Normally it's called by exit to free locks (as resources). */
 static void
 free_locks () {
-
   struct list *ls = &thread_current()->hold_locks;
   for (struct list_elem *lock = list_begin(ls); lock != list_end(ls); lock = list_next(lock)) {
     lock_release(list_entry(lock, struct lock, lock_elem));
   }
-
 }
-
 
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
