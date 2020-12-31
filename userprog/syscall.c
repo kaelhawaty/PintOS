@@ -26,26 +26,13 @@ static int sys_wait(pid_t pid);
 static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
 static int sys_open(const char *file);
-static int sys_file_size(int fd);
-static int sys_read(int fd, void *buffer, unsigned size);
-static int sys_write(int fd, const void *buffer, unsigned size);
-static void sys_seek(int fd, unsigned position);
-static unsigned sys_tell(int fd);
-static void sys_close(int fd);
+static int sys_file_size(int fd_num);
+static int sys_read(int fd_num, void *buffer, unsigned size);
+static int sys_write(int fd_num, const void *buffer, unsigned size);
+static void sys_seek(int fd_num, unsigned position);
+static unsigned sys_tell(int fd_num);
+static void sys_close(int fd_num);
 
-unsigned 
-hash_fd(const struct hash_elem *elem, void *aux UNUSED) {
-  const struct file_descriptor *fd = hash_entry(elem, struct file_descriptor, fd_elem);
-  return hash_bytes(&fd->fd_num, sizeof fd->fd_num);
-}
-
-unsigned 
-fd_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
-  const struct file_descriptor *fd_a = hash_entry(a, struct file_descriptor, fd_elem);
-  const struct file_descriptor *fd_b = hash_entry(b, struct file_descriptor, fd_elem);
-
-  return fd_a->fd_num < fd_b->fd_num;
-}
 
 /* Reads a byte at user virtual address UADDR.
 UADDR must be below PHYS_BASE.
@@ -83,7 +70,7 @@ syscall_init(void)
 
 static bool 
 validate(void *ptr) {
-  return ptr != NULL && is_user_vaddr(ptr) && get_data(ptr) != -1;
+  return ptr != NULL && is_user_vaddr(ptr) && get_data(ptr) != ERROR;
 }
 
 static void 
@@ -101,7 +88,6 @@ GET_ARG(void *ptr, int offset)
   validate_multiple(temp, 4);
   return *temp;
 }
-
 
 
 static void
@@ -153,12 +139,13 @@ syscall_handler(struct intr_frame *f)
   }
 }
 
+/* Get pointer to file descriptor struct with fd_num. */
 struct 
 file_descriptor *get_fd(int fd_num) {
   struct file_descriptor key;
   key.fd_num = fd_num;
   struct hash_elem *fd_elem = hash_find(&thread_current()->opened_files, &key.fd_elem);
-  if (!fd_elem) {
+  if (fd_elem == NULL) {
     return NULL;
   }
   struct file_descriptor *fd = hash_entry(fd_elem, struct file_descriptor, fd_elem);
@@ -259,6 +246,10 @@ sys_read(int fd_num, void *buffer, unsigned size)
     input_getc(buffer, size);
     return size;
   }
+  else if (fd_num == STDOUT) {
+    /* Can't read from the STDOUT. */
+    return 0;
+  }
   struct file_descriptor *fd = get_fd(fd_num);
   if (fd == NULL) {
     return ERROR;
@@ -273,8 +264,11 @@ static int
 sys_write(int fd_num, const void *buffer, unsigned size)
 {
   validate_multiple(buffer, size);
-  //printf("validation is done");
-  if (fd_num == STDOUT) {
+  if (fd_num == STDIN) {
+    /* Can't write to the STDIN. */
+    return 0;
+  }
+  else if (fd_num == STDOUT) {
     putbuf(buffer, size);
     return size;
   }

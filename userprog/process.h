@@ -16,5 +16,8 @@ void process_exit (void);
 void process_activate (void);
 unsigned hash_tid(const struct hash_elem *elem, void *aux UNUSED);
 unsigned child_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
+unsigned hash_fd(const struct hash_elem *elem, void *aux UNUSED);
+unsigned fd_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
+
 
 #endif /* userprog/process.h */
