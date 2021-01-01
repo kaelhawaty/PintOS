@@ -33,6 +33,13 @@ static void sys_seek(int fd_num, unsigned position);
 static unsigned sys_tell(int fd_num);
 static void sys_close(int fd_num);
 
+void 
+syscall_init(void)
+{
+  intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&file_lock);
+  fd_num = 2;
+}
 
 /* Reads a byte at user virtual address UADDR.
 UADDR must be below PHYS_BASE.
@@ -59,20 +66,16 @@ put_data (uint8_t *udst, uint8_t byte)
   return error_code != -1;
 }
 
-
-void 
-syscall_init(void)
-{
-  intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init(&file_lock);
-  fd_num = 2;
-}
-
+/* Validates user pointers as the kernel must be very careful about doing so, because the user can
+   pass a null pointer, a pointer to unmapped virtual memory, or a pointer to kernel virtual
+   address space (above PHYS_BASE). */
 static bool 
 validate(void *ptr) {
   return ptr != NULL && is_user_vaddr(ptr) && get_data(ptr) != ERROR;
 }
 
+/* Validates a block of memory by just validating the end pointer of the block which is 
+   a necessary and sufficient condition. */
 static void 
 validate_multiple(void *ptr, int size) {
   char *temp = ptr;
@@ -139,7 +142,7 @@ syscall_handler(struct intr_frame *f)
   }
 }
 
-/* Get pointer to file descriptor struct with fd_num. */
+/* Returns a pointer to file descriptor struct with fd_num. */
 struct 
 file_descriptor *get_fd(int fd_num) {
   struct file_descriptor key;
@@ -152,6 +155,7 @@ file_descriptor *get_fd(int fd_num) {
   return fd;
 }
 
+/* Terminates Pintos by calling shutdown_power_off(). */
 static void
 sys_halt()
 {
@@ -159,6 +163,9 @@ sys_halt()
   NOT_REACHED();
 }
 
+/* Terminates the current user program, returning status to the kernel. If the process’s
+   parent waits for it (see below), this is the status that will be returned. Conventionally,
+   a status of 0 indicates success and nonzero values indicate errors. */
 void
 sys_exit(int status)
 {
@@ -172,6 +179,9 @@ sys_exit(int status)
   NOT_REACHED();
 }
 
+/* Runs the executable whose name is given in cmd line, passing any given arguments,
+   and returns the new process’s program id (pid). If the program cannot load or run for any reason,
+   then pid -1 is returned. */
 static pid_t
 sys_exec(const char *cmd_line)
 {
@@ -179,12 +189,17 @@ sys_exec(const char *cmd_line)
   return process_execute(cmd_line);
 }
 
+/* Waits for a child process pid and retrieves the child’s exit status. If PID is 
+   invalid or if it was not a child of the calling process, or if process_wait() has already
+   been successfully called for the given PID, returns -1 immediately, without waiting */
 static int
 sys_wait(pid_t pid)
 {
   return process_wait(pid);
 }
 
+/* Creates a new file called file initially initial size bytes in size. Returns true if 
+   successful, false otherwise. */
 static bool
 sys_create(const char *file, unsigned initial_size)
 {
@@ -195,6 +210,9 @@ sys_create(const char *file, unsigned initial_size)
   return ans;
 }
 
+/* Deletes the file called file. Returns true if successful, false otherwise. A file may be
+  removed regardless of whether it is open or closed, and removing an open file does
+  not close it. */
 static bool
 sys_remove(const char *file)
 {
@@ -208,6 +226,8 @@ sys_remove(const char *file)
   return success;
 }
 
+/* Opens the file called file. Returns a nonnegative integer handle called a “file descrip-
+   tor” (fd), or -1 if the file could not be opened. */
 static int
 sys_open(const char *file_name)
 {
@@ -225,6 +245,7 @@ sys_open(const char *file_name)
   return fd->fd_num;
 }
 
+/* Returns the size, in bytes, of the file open as fd. */
 static int
 sys_file_size(int fd_num)
 {
@@ -238,6 +259,9 @@ sys_file_size(int fd_num)
   return ans;
 }
 
+/* Reads size bytes from the file open as fd into buffer. Returns the number of bytes
+   actually read (0 at end of file), or -1 if the file could not be read (due to a condition
+   other than end of file). Fd 0 reads from the keyboard using input_getc(). */
 static int
 sys_read(int fd_num, void *buffer, unsigned size)
 {
@@ -260,6 +284,8 @@ sys_read(int fd_num, void *buffer, unsigned size)
   return ans;
 }
 
+/* Writes size bytes from buffer to the open file fd. Returns the number of bytes actually
+   written, which may be less than size if some bytes could not be written. */
 static int
 sys_write(int fd_num, const void *buffer, unsigned size)
 {
@@ -282,6 +308,8 @@ sys_write(int fd_num, const void *buffer, unsigned size)
   return ans;
 }
 
+/* Changes the next byte to be read or written in open file fd to position, expressed in
+   bytes from the beginning of the file. (Thus, a position of 0 is the file’s start.) */
 static void
 sys_seek(int fd_num, unsigned position)
 {
@@ -294,6 +322,8 @@ sys_seek(int fd_num, unsigned position)
   lock_release(&file_lock);
 }
 
+/* Returns the position of the next byte to be read or written in open file fd, expressed
+   in bytes from the beginning of the file. */
 static unsigned
 sys_tell(int fd_num)
 {
@@ -306,6 +336,8 @@ sys_tell(int fd_num)
   lock_release(&file_lock);
 }
 
+/* Closes file descriptor fd. Exiting or terminating a process implicitly closes all its open
+   file descriptors, as if by calling this function for each one. */
 static void
 sys_close(int fd_num)
 {

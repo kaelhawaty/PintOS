@@ -149,8 +149,10 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-   /* Exit normally without panic if page fault from kernal program. */
+   /* Exit normally without panic if page fault was invoked from kernel program. */
    if (!user) {
+      /* Set eip to the next instruction address saved in eax and 
+         set eax i.e the return value to -1 to indicate failure. */
       f->eip = f->eax;
       f->eax = 0xffffffff;
       return;
@@ -159,13 +161,11 @@ page_fault (struct intr_frame *f)
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-
   printf ("Page fault at %p: %s error %s page in %s context.\n",
           fault_addr,
           not_present ? "not present" : "rights violation",
           write ? "writing" : "reading",
           user ? "user" : "kernel");
-
    kill(f);
 }
 

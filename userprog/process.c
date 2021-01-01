@@ -20,6 +20,7 @@
 #include "devices/timer.h"
 #include "userprog/syscall.h"
 
+/* Used as arguments wrapper for start_process. */
 struct process_args {
   int len;
   char **command;
@@ -32,9 +33,9 @@ static bool load (struct process_args *args, void (**eip) (void), void **esp);
 
 #define BUFF_SIZE 10    /* Initial buffer size for args */
 
-// Takes a command as string and splits into strings delimited by whitespaces which are returned as 
-// char** -array of strings- dynamically resized to fit the number of arguments of any command.
-// It additionally takes an integer pointer to return the number of arguments of the current command.
+/* Takes a command as string and splits into strings delimited by whitespaces which are returned as 
+   char** -array of strings- dynamically resized to fit the number of arguments of any command.
+   It additionally takes an integer pointer to return the number of arguments of the current command. */
 char **parse_args(char *line, int *arg_length)
 {
   // 2D-array to store the splits of line around white spaces.
@@ -94,10 +95,6 @@ process_execute (const char *file_name)
   /* Wait for child till it completes loading or fails,
   so that loading status can be returned to the parent process. */
   sema_down(&args.wait_load);
-
-  /* If thread_creation failed. */
-  if (tid == TID_ERROR)
-    palloc_free_page (fn_copy);
   
   /* If child loading fails. */
   if (!args.status) {
@@ -106,7 +103,7 @@ process_execute (const char *file_name)
   return tid;
 }
 
-/* Hash function used to Hash child struct. */
+/* Hash function used to hash child struct. */
 unsigned 
 hash_tid(const struct hash_elem *elem, void *aux UNUSED) {
   const struct child *child = hash_entry(elem, struct child, child_elem);
@@ -124,7 +121,7 @@ child_cmp(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED
 }
 
 
-/* Hash function used to Hash file_descriptor struct. */
+/* Hash function used to hash file_descriptor struct. */
 unsigned 
 hash_fd(const struct hash_elem *elem, void *aux UNUSED) {
   const struct file_descriptor *fd = hash_entry(elem, struct file_descriptor, fd_elem);
@@ -159,9 +156,10 @@ start_process (void *args_)
   /* Wake up the parent since load is done. */
   sema_up(&args->wait_load);
 
-  /* If load failed, quit. */
   palloc_free_page (*args->command);
   free(args->command);
+
+  /* If load failed, quit. */
   if (!*success)
     thread_exit ();
 
@@ -186,20 +184,19 @@ start_process (void *args_)
    exception), returns -1.  If TID is invalid or if it was not a
    child of the calling process, or if process_wait() has already
    been successfully called for the given TID, returns -1
-   immediately, without waiting.
-
-   This function will be implemen ted in problem 2-2.  For now, it
-   does nothing. */
+   immediately, without waiting. */
 int
 process_wait (tid_t child_tid) 
 {
-
-  /* Get the record of the child with child_tid as tid from children hashmap. */
+  /* Get the record of the thread child_tid from children hashtable. */
   struct child temp;
   temp.tid = child_tid;
   struct hash_elem *elem = hash_find(&thread_current()->children, &temp.child_elem);
   
-  ASSERT(elem != NULL);
+  /* If thread child_tid is not a direct child of the current thread. */
+  if(elem == NULL) {
+    return -1;
+  }
 
   struct child *child = hash_entry(elem, struct child, child_elem);
 
@@ -252,7 +249,7 @@ process_exit (void)
   file_close(thread_current()->exec_file);
   lock_release(&file_lock);
 
-  /* Clean up object children hash table. */
+  /* Free up process allocated hashtable. */
   hash_destroy(&thread_current()->children, child_free);
   hash_destroy(&thread_current()->opened_files, fd_free);
   
@@ -605,6 +602,9 @@ setup_stack (void **esp, char **args, int len)
     }
     if (success)
     {
+      /* Writing each argument (including the executable name) in reverse order
+         as well as in reverse for each string to the stack. Additionally
+         we save the address of each string written. */
       int sum = 0;
       int address[len];
       for (int it = len - 1; it >= 0; it--)
@@ -616,25 +616,32 @@ setup_stack (void **esp, char **args, int len)
         memcpy(*esp, args[it], arg_len);
       }
 
+      /* Writing necessary number of 0s to word alight to 4 bytes. */
       int padding_bytes = (4 - sum % 4) % 4;
       *esp -= padding_bytes;
       memset(*esp, 0, padding_bytes);
 
+      /* The null pointer sentinel ensures that argv[argc] is a null pointer, as required
+         by C standard. */
       *esp -= sizeof(int);
       memset(*esp, 0, sizeof(int));
 
+      /* Write the addresses pointing to each of the arguments. */
       for (int it = len - 1; it >= 0; it--)
       {
         *esp -= sizeof(char *);
         memcpy(*esp, &address[it], sizeof(char *));
       }
+      /* Write the address of argv[0]. This will be a char**. */
       *esp -= sizeof(char **);
       void *ptr = *esp + sizeof(char *);
       memcpy(*esp, &ptr, sizeof(char **));
 
+      /* Write the number of arguments (argc). */
       *esp -= sizeof(int);
       memcpy(*esp, &len, sizeof(int));
 
+      /* Write a NULL pointer as the return address. This will be a void*. */
       *esp -= sizeof(void *);
       memset(*esp, 0, sizeof(void *));
     }
