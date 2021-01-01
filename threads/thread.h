@@ -106,12 +106,12 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-    struct hash children;               /* Hash table of children that children have. */
-    struct thread *parent;              /* Pointer to thread parent. */
+    struct hash children;               /* Hash table of children that the thread has. */
+    struct thread *parent;              /* Pointer to thread's parent. */
     struct semaphore wait_child;        /* Semaphore to wait on a child. */
     struct child *self;                 /* Pointer to child struct corresponding to that thread. */
     struct hash opened_files;           /* Hash table containing all open files. */
-    struct file *exec_file;             /* Pointer to thread executable file. */
+    struct file *exec_file;             /* Pointer to it's executable file. */
 #endif
 
     /* Owned by thread.c. */

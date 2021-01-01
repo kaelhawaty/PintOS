@@ -3,6 +3,12 @@
 
 #include "threads/thread.h"
 
+/* A shared struct between the parent thread and the child thread which is created in the parent 
+   thread's memory to act as a message box for the exit_status between it and the child. 
+   
+   It is contained in the parent thread as a element in a hashtable to quickly find a child thread with a 
+   specific tid. Additionally, it exists in the child thread's struct so it is able to set the exit_status
+   before it terminates. */
 struct child {
     tid_t tid;
     struct thread *ptr;
