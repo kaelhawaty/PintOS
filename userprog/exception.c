@@ -151,11 +151,8 @@ page_fault (struct intr_frame *f)
 
    /* Exit normally without panic if page fault was invoked from kernel program. */
    if (!user) {
-      /* Set eip to the next instruction address saved in eax and 
-         set eax i.e the return value to -1 to indicate failure. */
-      f->eip = f->eax;
-      f->eax = 0xffffffff;
-      return;
+      sys_exit(ERROR);
+      NOT_REACHED();
    }
 
   /* To implement virtual memory, delete the rest of the function

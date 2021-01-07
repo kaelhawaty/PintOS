@@ -15,7 +15,9 @@
 
 typedef int pid_t;
 
-struct lock file_lock;
+struct lock file_lock; /* File system lock. */
+/* File discriptor lock to make fd_num unique within the OS. */
+struct lock fd_lock; 
 int fd_num;
 
 static void syscall_handler(struct intr_frame *);
@@ -38,6 +40,7 @@ syscall_init(void)
 {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init(&file_lock);
+  lock_init(&fd_lock);
   fd_num = 2;
 }
 
@@ -240,7 +243,9 @@ sys_open(const char *file_name)
   }
   struct file_descriptor *fd = malloc(sizeof(struct file_descriptor));
   fd->file = file;
+  lock_acquire(&fd_lock);
   fd->fd_num = fd_num++;
+  lock_release(&fd_lock);
   hash_insert(&thread_current()->opened_files, &fd->fd_elem);
   return fd->fd_num;
 }
