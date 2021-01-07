@@ -234,7 +234,6 @@ sys_open(const char *file_name)
   validate_multiple(file_name, 4);
   lock_acquire(&file_lock);
   struct file *file = filesys_open(file_name);
-  lock_release(&file_lock);
   if (file == NULL) {
     return ERROR;
   }
@@ -242,6 +241,7 @@ sys_open(const char *file_name)
   fd->file = file;
   fd->fd_num = fd_num++;
   hash_insert(&thread_current()->opened_files, &fd->fd_elem);
+  lock_release(&file_lock);
   return fd->fd_num;
 }
 
